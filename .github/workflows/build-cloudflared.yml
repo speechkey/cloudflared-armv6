@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       cloudflared_tag:
-        description: 'Tag of cloudflared to build (e.g., 2024.5.0)'
+        description: "Tag of cloudflared to build (e.g., 2024.5.0)"
         required: true
         type: string
 
@@ -27,7 +27,7 @@ jobs:
         uses: uraimo/run-on-arch-action@v3
         with:
           arch: armv6
-          distro: ubuntu22.04
+          distro: bookworm
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           install: |
             apt-get update
