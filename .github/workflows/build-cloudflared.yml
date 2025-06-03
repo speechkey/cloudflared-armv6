@@ -10,31 +10,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
     name: Cross-build cloudflared for ARMv6 with static OpenSSL
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout this repository (workflow host repo)
+      - name: Checkout this repository
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Install build dependencies
-        run: |
-          sudo dpkg --add-architecture armhf
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross \
-            pkg-config \
-            make \
-            perl \
-            wget \
-            git
 
       - name: Clone cloudflared
         run: |
@@ -42,40 +23,56 @@ jobs:
           cd cloudflared
           git checkout ${{ github.event.inputs.cloudflared_tag }}
 
-      - name: Build static OpenSSL for ARMv6
-        run: |
-          OPENSSL_VERSION=3.2.1
-          wget https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz
-          tar -xzf openssl-$OPENSSL_VERSION.tar.gz
-          cd openssl-$OPENSSL_VERSION
-          ./Configure linux-armv4 no-shared no-dso --prefix=$PWD/../openssl-armv6 --cross-compile-prefix=arm-linux-gnueabihf-
-          make -j$(nproc)
-          make install_sw
-          cd ..
+      - name: Cross-build on ARMv6 using run-on-arch-action
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: armv6
+          distro: ubuntu22.04
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          install: |
+            apt-get update
+            apt-get install -y \
+              gcc \
+              pkg-config \
+              make \
+              perl \
+              wget \
+              git \
+              golang
+          run: |
+            set -eux
 
-      - name: Build cloudflared with static OpenSSL
-        working-directory: ./cloudflared
-        env:
-          GOOS: linux
-          GOARCH: arm
-          GOARM: 6
-          CC: arm-linux-gnueabihf-gcc
-          CGO_ENABLED: 1
-          CGO_CFLAGS: "-I$GITHUB_WORKSPACE/openssl-armv6/include"
-          CGO_LDFLAGS: "-L$GITHUB_WORKSPACE/openssl-armv6/lib -static"
-        run: |
-          go build -v -o cloudflared-armv6
+            # Set up Go env manually
+            export PATH="/usr/lib/go-1.18/bin:$PATH"
 
-      - name: Archive binary
-        working-directory: ./cloudflared
-        run: |
-          tar -czvf cloudflared-armv6-${{ github.event.inputs.cloudflared_tag }}.tar.gz cloudflared-armv6
+            # Build OpenSSL for ARMv6
+            OPENSSL_VERSION=3.2.1
+            wget https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz
+            tar -xzf openssl-$OPENSSL_VERSION.tar.gz
+            cd openssl-$OPENSSL_VERSION
+            ./Configure linux-armv4 no-shared no-dso --prefix=$PWD/../openssl-armv6
+            make -j$(nproc)
+            make install_sw
+            cd ..
+
+            # Build cloudflared
+            cd cloudflared
+            export CGO_ENABLED=1
+            export GOOS=linux
+            export GOARCH=arm
+            export GOARM=6
+            export CGO_CFLAGS="-I$(realpath ../openssl-armv6/include)"
+            export CGO_LDFLAGS="-L$(realpath ../openssl-armv6/lib) -static"
+            go build -v -o cloudflared-armv6
+
+            tar -czvf cloudflared-armv6-${{ github.event.inputs.cloudflared_tag }}.tar.gz cloudflared-armv6
+            mv cloudflared-armv6-${{ github.event.inputs.cloudflared_tag }}.tar.gz /tmp/
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           name: "cloudflared ARMv6 ${{ github.event.inputs.cloudflared_tag }}"
           tag_name: "cloudflared-${{ github.event.inputs.cloudflared_tag }}"
-          files: cloudflared/cloudflared-armv6-${{ github.event.inputs.cloudflared_tag }}.tar.gz
+          files: /tmp/cloudflared-armv6-${{ github.event.inputs.cloudflared_tag }}.tar.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TAP_TOKEN }}
