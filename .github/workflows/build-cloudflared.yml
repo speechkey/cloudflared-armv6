@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Cross-build cloudflared for ARMv6 with static OpenSSL
 
     steps:
